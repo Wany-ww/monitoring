@@ -144,3 +144,7 @@ with tab4:
         st.plotly_chart(fig_corr, use_container_width=True)
     else:
         st.warning("Required columns ('Layer No', 'Bar Grade') are missing.")
+
+st.markdown("---")
+st.subheader("Raw Data Table")
+st.dataframe(df_filtered, use_container_width=True)
