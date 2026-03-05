@@ -112,18 +112,26 @@ with tab1:
                 
             plot_df = pd.concat(plot_data)
             
-            # Sort to ensure FP1 to FP6 are in order for the line connection
             plot_df['FP_num'] = plot_df['FP'].str.extract(r'(\d+)').astype(int)
             plot_df = plot_df.sort_values(['Z', 'FP_num'])
             
             fig_3d = go.Figure()
             
-            # Add line connecting FPs per layer
+            # Add line connecting FPs per layer based on spatial angle to form a polygon/rectangle
             for layer in plot_df['Z'].unique():
-                layer_data = plot_df[plot_df['Z'] == layer]
-                # To make a closed polygon, append the first point at the end
+                layer_data = plot_df[plot_df['Z'] == layer].copy()
                 if not layer_data.empty:
+                    # Calculate centroid for angular sorting
+                    cx = layer_data['X'].mean()
+                    cy = layer_data['Y'].mean()
+                    # Calculate angle
+                    layer_data['angle'] = np.arctan2(layer_data['Y'] - cy, layer_data['X'] - cx)
+                    # Sort points to form an ordered boundary
+                    layer_data = layer_data.sort_values('angle')
+                    
+                    # To make a closed polygon, append the first point at the end
                     layer_data = pd.concat([layer_data, layer_data.iloc[[0]]])
+                    
                     fig_3d.add_trace(go.Scatter3d(
                         x=layer_data['X'],
                         y=layer_data['Y'],
