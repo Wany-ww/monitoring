@@ -112,10 +112,45 @@ with tab1:
                 
             plot_df = pd.concat(plot_data)
             
-            fig_3d = px.scatter_3d(plot_df, x='X', y='Y', z='Z', color='FP', title=f"3D Scatter: Roll {selected_roll}, Bar {selected_bar}")
-            fig_3d.update_layout(margin=dict(l=0, r=0, b=0, t=40))
-            st.plotly_chart(fig_3d, use_container_width=True)
+            # Sort to ensure FP1 to FP6 are in order for the line connection
+            plot_df['FP_num'] = plot_df['FP'].str.extract(r'(\d+)').astype(int)
+            plot_df = plot_df.sort_values(['Z', 'FP_num'])
             
+            fig_3d = go.Figure()
+            
+            # Add line connecting FPs per layer
+            for layer in plot_df['Z'].unique():
+                layer_data = plot_df[plot_df['Z'] == layer]
+                # To make a closed polygon, append the first point at the end
+                if not layer_data.empty:
+                    layer_data = pd.concat([layer_data, layer_data.iloc[[0]]])
+                    fig_3d.add_trace(go.Scatter3d(
+                        x=layer_data['X'],
+                        y=layer_data['Y'],
+                        z=layer_data['Z'],
+                        mode='lines',
+                        line=dict(color='gray', width=2),
+                        showlegend=False,
+                        hoverinfo='skip'
+                    ))
+            
+            # Add Scatter points colored by FP
+            for fp in plot_df['FP'].unique():
+                fp_data = plot_df[plot_df['FP'] == fp]
+                fig_3d.add_trace(go.Scatter3d(
+                    x=fp_data['X'],
+                    y=fp_data['Y'],
+                    z=fp_data['Z'],
+                    mode='markers',
+                    name=fp,
+                    marker=dict(size=4) # Reduced marker size
+                ))
+                
+            fig_3d.update_layout(
+                title=f"3D Scatter: Roll {selected_roll}, Bar {selected_bar}",
+                margin=dict(l=0, r=0, b=0, t=40)
+            )
+            st.plotly_chart(fig_3d, use_container_width=True)            
             st.markdown("---")
             st.subheader("Raw Data Table")
             st.dataframe(bar_data, use_container_width=True)
