@@ -2,149 +2,228 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 import glob
 import os
 import datetime
 
-st.set_page_config(page_title="Equipment Data Pattern Analyzer", layout="wide")
+st.set_page_config(page_title="Custom Dashboard App", layout="wide")
 
 @st.cache_data(ttl=60)
 def load_data(data_dir="data"):
-    all_files = glob.glob(os.path.join(data_dir, "**", "*.csv"), recursive=True)
-    if not all_files:
-        return pd.DataFrame()
+    calc_files = glob.glob(os.path.join(data_dir, "**", "calc", "*.csv"), recursive=True)
+    data_files = glob.glob(os.path.join(data_dir, "**", "data", "*.csv"), recursive=True)
     
-    df_list = []
-    for file in all_files:
+    df_calc_list = []
+    for f in calc_files:
         try:
-            temp_df = pd.read_csv(file)
+            df_calc_list.append(pd.read_csv(f))
+        except:
+            pass
             
-            # Extract metadata
-            path_parts = os.path.split(file)
-            file_name = path_parts[1]
-            equipment_name = os.path.split(path_parts[0])[1]
-            date_str = file_name.replace('.csv', '')
+    df_data_list = []
+    for f in data_files:
+        try:
+            df_data_list.append(pd.read_csv(f))
+        except:
+            pass
             
-            temp_df['Equipment'] = equipment_name
-            temp_df['Date'] = date_str
-            df_list.append(temp_df)
-        except Exception as e:
-            st.warning(f"Error loading {file}: {e}")
-            
-    if not df_list:
-        return pd.DataFrame()
-        
-    df = pd.concat(df_list, ignore_index=True)
-    if 'Time' in df.columns:
-        df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
-    return df
+    df_calc = pd.concat(df_calc_list, ignore_index=True) if df_calc_list else pd.DataFrame()
+    df_data = pd.concat(df_data_list, ignore_index=True) if df_data_list else pd.DataFrame()
+    
+    if not df_calc.empty:
+        df_calc['날짜'] = pd.to_datetime(df_calc['날짜'])
+    if not df_data.empty:
+        df_data['DATE'] = pd.to_datetime(df_data['DATE'])
+        # Time column to datetime
+        df_data['DATETIME'] = pd.to_datetime(df_data['DATE'].dt.strftime('%Y-%m-%d') + ' ' + df_data['TIME'])
 
-st.title("Equipment Data Pattern Analyzer (EDPA)")
+    return df_calc, df_data
 
-df = load_data()
+st.title("Equipment Monitoring Dashboard")
 
-if df.empty:
-    st.warning("No Data: Please ensure CSV files exist in the 'data/{Equipment_Name}/' directory.")
+df_calc, df_data = load_data()
+
+if df_calc.empty or df_data.empty:
+    st.warning("No data found. Please run the generation script.")
     st.stop()
 
-# Sidebar Filters
+# --- SIDEBAR FILTERS ---
 st.sidebar.header("Filters")
 
-# Time Range
-min_time = df['Time'].min()
-max_time = df['Time'].max()
-if pd.notna(min_time) and pd.notna(max_time):
-    start_time, end_time = st.sidebar.slider(
-        "Select Time Range",
-        min_value=min_time.to_pydatetime(),
-        max_value=max_time.to_pydatetime(),
-        value=(min_time.to_pydatetime(), max_time.to_pydatetime())
-    )
-    df_filtered = df[(df['Time'] >= start_time) & (df['Time'] <= end_time)]
-else:
-    df_filtered = df.copy()
+# Date Filter
+min_date = df_calc['날짜'].min()
+max_date = df_calc['날짜'].max()
+start_date, end_date = st.sidebar.date_input("Select Date Range", [min_date, max_date], min_value=min_date, max_value=max_date)
+start_date = pd.to_datetime(start_date)
+end_date = pd.to_datetime(end_date)
 
-# Equipment Selection
-equipments = df_filtered['Equipment'].unique()
-selected_equip = st.sidebar.multiselect("Select Equipment", equipments, default=equipments)
+# Filter DataFrames by Date
+df_c = df_calc[(df_calc['날짜'] >= start_date) & (df_calc['날짜'] <= end_date)]
+df_d = df_data[(df_data['DATE'] >= start_date) & (df_data['DATE'] <= end_date)]
 
-# Model Selection
-if 'Model' in df_filtered.columns:
-    models = df_filtered['Model'].unique()
-    selected_model = st.sidebar.multiselect("Select Model", models, default=models)
-else:
-    selected_model = []
+equipments = df_c['설비 이름'].unique()
+selected_equip = st.sidebar.selectbox("Select Equipment", ["All"] + list(equipments))
+if selected_equip != "All":
+    df_c = df_c[df_c['설비 이름'] == selected_equip]
+    df_d = df_d[df_d['EQUIP_NAME'] == selected_equip]
 
-# Search
-search_roll = st.sidebar.text_input("Search Roll No")
-search_bar = st.sidebar.text_input("Search Bar No")
+models = df_c['모델'].unique()
+selected_model = st.sidebar.selectbox("Select Model", ["All"] + list(models))
+if selected_model != "All":
+    df_c = df_c[df_c['모델'] == selected_model]
+    df_d = df_d[df_d['MODEL'] == selected_model]
 
-# Apply Filters
-if selected_equip:
-    df_filtered = df_filtered[df_filtered['Equipment'].isin(selected_equip)]
-if selected_model:
-    df_filtered = df_filtered[df_filtered['Model'].isin(selected_model)]
-if search_roll and 'Roll' in df_filtered.columns:
-    df_filtered = df_filtered[df_filtered['Roll'].astype(str).str.contains(search_roll)]
-if search_bar and 'Bar No' in df_filtered.columns:
-    df_filtered = df_filtered[df_filtered['Bar No'].astype(str).str.contains(search_bar)]
+rolls = df_c['ROLL'].unique()
+selected_roll = st.sidebar.selectbox("Select Roll", ["All"] + list(rolls))
+if selected_roll != "All":
+    df_c = df_c[df_c['ROLL'] == selected_roll]
+    df_d = df_d[df_d['ROLL'] == selected_roll]
 
-if df_filtered.empty:
-    st.info("No Data matches the given filters.")
-    st.stop()
+bars = df_c['Bar 번호'].unique()
+selected_bar = st.sidebar.selectbox("Select Bar No", ["All"] + list(bars))
+if selected_bar != "All":
+    df_c = df_c[df_c['Bar 번호'] == selected_bar]
+    df_d = df_d[df_d['BAR_NO'] == selected_bar]
 
-# Main Dashboard
-tab1, tab2, tab3, tab4 = st.tabs(["FP Coordinates", "Time Series", "Quality Analysis", "Correlation"])
 
+# --- TABS ---
+tab1, tab2, tab3, tab4 = st.tabs(["3D Coordinates (Bar Level)", "Max Deviation Table", "Trend: Deviation & Tilt", "Grade D Frequency"])
+
+# --- TAB 1: 3D Plot & Raw Data ---
 with tab1:
-    st.subheader("FP Coordinates Distribution")
-    fp_choices = [f"FP{i}" for i in range(1, 7)]
-    selected_fp = st.selectbox("Select FP Point", fp_choices)
+    st.subheader("Data Analysis - 3D Coordinates")
+    st.write("Displays FP1 ~ FP6 (x, y) coordinates for each Layer (z) based on the filtered Bar.")
     
-    fp_x_col = f"{selected_fp} X"
-    fp_y_col = f"{selected_fp} Y"
-    
-    if fp_x_col in df_filtered.columns and fp_y_col in df_filtered.columns:
-        color_by = st.radio("Color By (FP)", ["Equipment", "Model"], horizontal=True)
-        fig_fp = px.scatter(df_filtered, x=fp_x_col, y=fp_y_col, color=color_by, title=f"{selected_fp} Coordinates")
-        st.plotly_chart(fig_fp, use_container_width=True)
+    if selected_bar == "All" or selected_roll == "All":
+        st.info("Please select a specific Roll and Bar No to view the 3D plot and raw data.")
     else:
-        st.warning(f"Columns {fp_x_col} and/or {fp_y_col} not found in data.")
-
-with tab2:
-    st.subheader("Time Series Trend")
-    if 'Time' in df_filtered.columns:
-        y_axis_options = [col for col in df_filtered.columns if 'FP' in col and ('X' in col or 'Y' in col)]
-        if y_axis_options:
-            selected_y = st.selectbox("Select Metric for Trend", y_axis_options)
-            color_by_trend = st.radio("Color By (Trend)", ["Equipment", "Model"], horizontal=True)
-            fig_trend = px.line(df_filtered.sort_values("Time"), x="Time", y=selected_y, color=color_by_trend, markers=True, title=f"{selected_y} over Time")
-            st.plotly_chart(fig_trend, use_container_width=True)
-        else:
-            st.warning("No numerical metrics available for Time Series.")
-    else:
-        st.warning("'Time' column is missing.")
-
-with tab3:
-    st.subheader("Quality Analysis (Bar Grade)")
-    if 'Bar Grade' in df_filtered.columns:
-        color_by_qual = st.radio("Group By (Quality)", ["Equipment", "Model"], horizontal=True)
-        fig_box = px.box(df_filtered, x=color_by_qual, y="Bar Grade", color=color_by_qual, title="Bar Grade Distribution")
-        st.plotly_chart(fig_box, use_container_width=True)
+        # We need a specific Bar for this
+        bar_data = df_d.copy()
         
-        fig_hist = px.histogram(df_filtered, x="Bar Grade", color=color_by_qual, barmode="group", title="Bar Grade Counts")
-        st.plotly_chart(fig_hist, use_container_width=True)
-    else:
-        st.warning("'Bar Grade' column not found.")
+        if not bar_data.empty:
+            # Prepare data for 3D plot
+            plot_data = []
+            for fp in range(1, 7):
+                temp = bar_data[['LAYER_NO', f'FP{fp}_DX', f'FP{fp}_DY']].copy()
+                temp.columns = ['Z', 'X', 'Y']
+                temp['FP'] = f'FP{fp}'
+                plot_data.append(temp)
+                
+            plot_df = pd.concat(plot_data)
+            
+            fig_3d = px.scatter_3d(plot_df, x='X', y='Y', z='Z', color='FP', title=f"3D Scatter: Roll {selected_roll}, Bar {selected_bar}")
+            fig_3d.update_layout(margin=dict(l=0, r=0, b=0, t=40))
+            st.plotly_chart(fig_3d, use_container_width=True)
+            
+            st.markdown("---")
+            st.subheader("Raw Data Table")
+            st.dataframe(bar_data, use_container_width=True)
+        else:
+            st.warning("No data found for the selected Bar.")
 
+# --- TAB 2: Max Deviation Table ---
+with tab2:
+    st.subheader("Max Deviation per Equipment")
+    st.write("Finding the row with the maximum '최대이탈값' within the selected date range for each equipment.")
+    
+    if not df_c.empty:
+        idx = df_c.groupby("설비 이름")["최대이탈값"].idxmax()
+        max_dev_df = df_c.loc[idx, ["날짜", "설비 이름", "모델", "ROLL", "Bar 번호", "최대이탈값", "Bar 등급"]]
+        max_dev_df = max_dev_df.sort_values(by="최대이탈값", ascending=False).reset_index(drop=True)
+        max_dev_df['날짜'] = max_dev_df['날짜'].dt.strftime('%Y-%m-%d')
+        st.dataframe(max_dev_df, use_container_width=True)
+    else:
+        st.warning("No Calc Data available.")
+
+# --- TAB 3: Deviation & Tilt Trend ---
+with tab3:
+    st.subheader("Trend over Time: Max Deviation and TILT")
+    st.write("D Grade points are highlighted with large red markers.")
+    
+    if not df_d.empty and not df_c.empty:
+        # We need to merge df_d and df_c to get '최대이탈값' (from calc) and 'TILT', 'DATETIME' (from data)
+        # However, data has layer-level info. We probably want Bar-level aggregation or just taking the first row of each bar.
+        df_d_bar = df_d.drop_duplicates(subset=["DATE", "EQUIP_NAME", "MODEL", "ROLL", "BAR_NO"], keep="first")
+        
+        # Merge
+        merged = pd.merge(df_c, df_d_bar, left_on=["날짜", "설비 이름", "모델", "ROLL", "Bar 번호"], right_on=["DATE", "EQUIP_NAME", "MODEL", "ROLL", "BAR_NO"], how="inner")
+        
+        if not merged.empty:
+            merged = merged.sort_values("DATETIME")
+            
+            # Map Grade integer to string if needed, calc 'Bar 등급' already has A, B, C, D
+            color_map = {"A": "blue", "B": "green", "C": "orange", "D": "red"}
+            merged['TILT_Num'] = pd.to_numeric(merged['TILT'], errors='coerce')
+            
+            for equip in merged["설비 이름"].unique():
+                st.markdown(f"### 설비: {equip}")
+                merged_equip = merged[merged["설비 이름"] == equip]
+                
+                # We will use Plotly Graph Objects to have fine control over marker sizes
+                fig_trend = go.Figure()
+                
+                for grade in ["A", "B", "C", "D"]:
+                    subset = merged_equip[merged_equip["Bar 등급"] == grade]
+                    if subset.empty: continue
+                    
+                    size = 15 if grade == "D" else 6
+                    marker_symbol = "diamond" if grade == "D" else "circle"
+                    
+                    fig_trend.add_trace(go.Scatter(
+                        x=subset["DATETIME"],
+                        y=subset["최대이탈값"],
+                        mode="markers+text",
+                        name=f"Max Dev (Grade {grade})",
+                        marker=dict(color=color_map[grade], size=size, symbol=marker_symbol),
+                        text=subset["Bar 등급"] if grade == "D" else "",
+                        textposition="top center"
+                    ))
+                
+                # Optionally add TILT on secondary Y axis
+                fig_trend.update_layout(title=f"Max Deviation Over Time - {equip}", xaxis_title="Time", yaxis_title="Max Deviation (최대이탈값)")
+                st.plotly_chart(fig_trend, use_container_width=True)
+                
+                # TILT Over Time
+                fig_tilt = px.scatter(merged_equip, x="DATETIME", y="TILT_Num", color="Bar 등급", color_discrete_map=color_map, title=f"TILT Value Over Time - {equip}")
+                
+                # Emphasize D
+                fig_tilt.update_traces(marker=dict(size=6))
+                for i, trace in enumerate(fig_tilt.data):
+                    if trace.name == 'D':
+                        trace.marker.size = 15
+                        trace.marker.symbol = 'diamond'
+                
+                st.plotly_chart(fig_tilt, use_container_width=True)
+                st.markdown("---")
+            
+        else:
+            st.warning("Could not merge Calc and Data tables for Trend analysis.")
+    else:
+        st.warning("Insufficient data for Trend analysis.")
+
+# --- TAB 4: Grade D Frequency ---
 with tab4:
-    st.subheader("Correlation: Layer No vs Bar Grade")
-    if 'Layer No' in df_filtered.columns and 'Bar Grade' in df_filtered.columns:
-        fig_corr = px.scatter(df_filtered, x="Layer No", y="Bar Grade", color="Equipment", trendline="ols", title="Layer No vs Bar Grade")
-        st.plotly_chart(fig_corr, use_container_width=True)
+    st.subheader("Grade D Frequency")
+    st.write("Frequency of Grade D occurrences per Equipment and Bar.")
+    
+    if not df_c.empty:
+        # Filter only Grade D
+        grade_d = df_c[df_c["Bar 등급"] == "D"]
+        if not grade_d.empty:
+            for equip in grade_d["설비 이름"].unique():
+                st.markdown(f"### 설비: {equip}")
+                grade_d_equip = grade_d[grade_d["설비 이름"] == equip]
+                
+                # Group by Equipment and Bar No
+                freq_df = grade_d_equip.groupby(["Bar 번호"]).size().reset_index(name="D Grade Count")
+                freq_df["Bar 번호"] = freq_df["Bar 번호"].astype(str) # To treat as categorical
+                
+                fig_freq = px.bar(freq_df, x="Bar 번호", y="D Grade Count", title=f"Frequency of D Grade per Bar No - {equip}")
+                fig_freq.update_xaxes(type='category')
+                st.plotly_chart(fig_freq, use_container_width=True)
+                st.markdown("---")
+        else:
+            st.info("No Grade D occurrences found in the selected specific filters.")
     else:
-        st.warning("Required columns ('Layer No', 'Bar Grade') are missing.")
-
-st.markdown("---")
-st.subheader("Raw Data Table")
-st.dataframe(df_filtered, use_container_width=True)
+        st.warning("No Calc Data available.")
