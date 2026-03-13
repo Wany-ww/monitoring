@@ -17,14 +17,26 @@ def load_data(data_dir="data"):
     df_calc_list = []
     for f in calc_files:
         try:
-            df_calc_list.append(pd.read_csv(f))
+            df = pd.read_csv(f)
+            p = os.path.normpath(f).split(os.sep)
+            if len(p) >= 6:
+                df['지역'] = p[-6]
+                df['분야'] = p[-5]
+                df['설비종류'] = p[-4]
+            df_calc_list.append(df)
         except:
             pass
             
     df_data_list = []
     for f in data_files:
         try:
-            df_data_list.append(pd.read_csv(f))
+            df = pd.read_csv(f)
+            p = os.path.normpath(f).split(os.sep)
+            if len(p) >= 6:
+                df['지역'] = p[-6]
+                df['분야'] = p[-5]
+                df['설비종류'] = p[-4]
+            df_data_list.append(df)
         except:
             pass
             
@@ -62,29 +74,50 @@ end_date = pd.to_datetime(end_date)
 df_c = df_calc[(df_calc['날짜'] >= start_date) & (df_calc['날짜'] <= end_date)]
 df_d = df_data[(df_data['DATE'] >= start_date) & (df_data['DATE'] <= end_date)]
 
+if '지역' in df_c.columns:
+    regions = df_c['지역'].unique()
+    selected_region = st.sidebar.multiselect("Select Region", regions, default=regions)
+    if selected_region:
+        df_c = df_c[df_c['지역'].isin(selected_region)]
+        df_d = df_d[df_d['지역'].isin(selected_region)]
+
+if '분야' in df_c.columns:
+    fields = df_c['분야'].unique()
+    selected_field = st.sidebar.multiselect("Select Field", fields, default=fields)
+    if selected_field:
+        df_c = df_c[df_c['분야'].isin(selected_field)]
+        df_d = df_d[df_d['분야'].isin(selected_field)]
+
+if '설비종류' in df_c.columns:
+    types = df_c['설비종류'].unique()
+    selected_type = st.sidebar.multiselect("Select Equip Type", types, default=types)
+    if selected_type:
+        df_c = df_c[df_c['설비종류'].isin(selected_type)]
+        df_d = df_d[df_d['설비종류'].isin(selected_type)]
+
 equipments = df_c['설비 이름'].unique()
-selected_equip = st.sidebar.selectbox("Select Equipment", ["All"] + list(equipments))
-if selected_equip != "All":
-    df_c = df_c[df_c['설비 이름'] == selected_equip]
-    df_d = df_d[df_d['EQUIP_NAME'] == selected_equip]
+selected_equip = st.sidebar.multiselect("Select Equipment", equipments, default=equipments)
+if selected_equip:
+    df_c = df_c[df_c['설비 이름'].isin(selected_equip)]
+    df_d = df_d[df_d['EQUIP_NAME'].isin(selected_equip)]
 
 models = df_c['모델'].unique()
-selected_model = st.sidebar.selectbox("Select Model", ["All"] + list(models))
-if selected_model != "All":
-    df_c = df_c[df_c['모델'] == selected_model]
-    df_d = df_d[df_d['MODEL'] == selected_model]
+selected_model = st.sidebar.multiselect("Select Model", models, default=models)
+if selected_model:
+    df_c = df_c[df_c['모델'].isin(selected_model)]
+    df_d = df_d[df_d['MODEL'].isin(selected_model)]
 
 rolls = df_c['ROLL'].unique()
-selected_roll = st.sidebar.selectbox("Select Roll", ["All"] + list(rolls))
-if selected_roll != "All":
-    df_c = df_c[df_c['ROLL'] == selected_roll]
-    df_d = df_d[df_d['ROLL'] == selected_roll]
+selected_roll = st.sidebar.multiselect("Select Roll", rolls, default=rolls)
+if selected_roll:
+    df_c = df_c[df_c['ROLL'].isin(selected_roll)]
+    df_d = df_d[df_d['ROLL'].isin(selected_roll)]
 
 bars = df_c['Bar 번호'].unique()
-selected_bar = st.sidebar.selectbox("Select Bar No", ["All"] + list(bars))
-if selected_bar != "All":
-    df_c = df_c[df_c['Bar 번호'] == selected_bar]
-    df_d = df_d[df_d['BAR_NO'] == selected_bar]
+selected_bar = st.sidebar.multiselect("Select Bar No", bars, default=bars)
+if selected_bar:
+    df_c = df_c[df_c['Bar 번호'].isin(selected_bar)]
+    df_d = df_d[df_d['BAR_NO'].isin(selected_bar)]
 
 
 # --- TABS ---
@@ -95,8 +128,8 @@ with tab1:
     st.subheader("Data Analysis - 3D Coordinates")
     st.write("Displays FP1 ~ FP6 (x, y) coordinates for each Layer (z) based on the filtered Bar.")
     
-    if selected_bar == "All" or selected_roll == "All":
-        st.info("Please select a specific Roll and Bar No to view the 3D plot and raw data.")
+    if len(selected_bar) != 1 or len(selected_roll) != 1:
+        st.info("Please select exactly one Roll and one Bar No to view the 3D plot and raw data.")
     else:
         # We need a specific Bar for this
         bar_data = df_d.copy()
@@ -155,7 +188,7 @@ with tab1:
                 ))
                 
             fig_3d.update_layout(
-                title=f"3D Scatter: Roll {selected_roll}, Bar {selected_bar}",
+                title=f"3D Scatter: Roll {selected_roll[0]}, Bar {selected_bar[0]}",
                 margin=dict(l=0, r=0, b=0, t=40)
             )
             st.plotly_chart(fig_3d, use_container_width=True)            
@@ -258,11 +291,11 @@ with tab4:
                 st.markdown(f"### 설비: {equip}")
                 grade_d_equip = grade_d[grade_d["설비 이름"] == equip]
                 
-                # Group by Equipment and Bar No
-                freq_df = grade_d_equip.groupby(["Bar 번호"]).size().reset_index(name="D Grade Count")
-                freq_df["Bar 번호"] = freq_df["Bar 번호"].astype(str) # To treat as categorical
+                # Group by Equipment and Date
+                freq_df = grade_d_equip.groupby(["날짜"]).size().reset_index(name="D Grade Count")
+                freq_df["날짜"] = freq_df["날짜"].dt.strftime('%Y-%m-%d') if pd.api.types.is_datetime64_any_dtype(freq_df["날짜"]) else freq_df["날짜"].astype(str)
                 
-                fig_freq = px.bar(freq_df, x="Bar 번호", y="D Grade Count", title=f"Frequency of D Grade per Bar No - {equip}")
+                fig_freq = px.bar(freq_df, x="날짜", y="D Grade Count", title=f"Frequency of D Grade per Date - {equip}")
                 fig_freq.update_xaxes(type='category')
                 st.plotly_chart(fig_freq, use_container_width=True)
                 st.markdown("---")
